@@ -1,0 +1,30 @@
+{
+  "name": "gestion-locative",
+  "version": "1.0.0",
+  "description": "Administration de la location saisonnière — La Giettaz & Les Deux Alpes",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning server/index.js",
+    "dev": "node --no-warnings=ExperimentalWarning --watch server/index.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imbandre81/Gestion_locative.git"
+  },
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/imbandre81/Gestion_locative/issues"
+  },
+  "homepage": "https://github.com/imbandre81/Gestion_locative#readme",
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.22.3",
+    "multer": "^2.4.0",
+    "pdfkit": "^0.20.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  }
+}

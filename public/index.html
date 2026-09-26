@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Gestion locative</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏔️</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <form id="login-form">
+      <div class="logo">🏔️</div>
+      <h1 style="text-align:center">Gestion locative</h1>
+      <p class="muted" style="text-align:center;margin:0">La Giettaz · Les Deux Alpes</p>
+      <label class="field">Mot de passe
+        <input type="password" name="password" autocomplete="current-password" required autofocus>
+      </label>
+      <div class="error-msg" id="login-error"></div>
+      <button class="primary" type="submit">Se connecter</button>
+    </form>
+  </div>
+
+  <div id="shell" class="layout" hidden>
+    <nav class="sidebar" aria-label="Navigation principale">
+      <div class="brand">🏔️ <div>Gestion locative<small>Espace d'Isabelle</small></div></div>
+      <a class="nav" href="#/tableau-de-bord" data-route="tableau-de-bord">📊 Tableau de bord <span class="count" id="alert-count" hidden></span></a>
+      <a class="nav" href="#/calendrier" data-route="calendrier">📅 Calendrier</a>
+      <a class="nav" href="#/dossiers" data-route="dossiers">🗂️ Dossiers</a>
+      <a class="nav" href="#/menage" data-route="menage">🧹 Ménage</a>
+      <a class="nav" href="#/messages" data-route="messages">✉️ Messages</a>
+      <a class="nav" href="#/comptabilite" data-route="comptabilite">💶 Comptabilité</a>
+      <a class="nav" href="#/reglages" data-route="reglages">⚙️ Réglages</a>
+      <div class="spacer"></div>
+      <div class="legend" id="apt-legend"></div>
+      <a class="nav" href="#" id="logout">↩︎ Déconnexion</a>
+    </nav>
+    <div class="main">
+      <header class="topbar">
+        <button class="ghost menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+        <input class="search grow" id="global-search" type="search" placeholder="🔎 Rechercher un locataire, un téléphone, une semaine (ex. S7)…">
+        <button class="primary" id="new-resa">＋ <span>Réservation</span></button>
+      </header>
+      <main class="content" id="view"></main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <script src="calc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

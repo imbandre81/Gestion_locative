@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Planning partagé</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .content { margin: 0 auto; max-width: 900px; }
+    .ro { font-size: .75rem; }
+  </style>
+</head>
+<body>
+  <main class="content" id="view"><div class="empty">Chargement…</div></main>
+  <script src="/calc.js"></script>
+  <script>
+  (() => {
+    const token = location.pathname.split('/').filter(Boolean).pop();
+    const view = document.getElementById('view');
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const f = Calc.formatDate;
+    let annee = new Date().getFullYear();
+
+    async function load() {
+      const res = await fetch(`/api/public/${encodeURIComponent(token)}?annee=${annee}`);
+      const d = await res.json();
+      if (!res.ok) { view.innerHTML = `<div class="card empty">🔒 ${esc(d.error)}</div>`; return false; }
+      const maj = new Date(d.misAJour).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+      if (d.role === 'menage') {
+        document.title = 'Planning ménage';
+        view.innerHTML = `
+          <div class="page-head"><h1>🧹 Planning ménage</h1><a class="btn" href="/api/public/${encodeURIComponent(token)}/menage.pdf">⬇︎ PDF</a></div>
+          <p class="muted small-text">${esc(d.appartement)} · <span class="badge grey ro">Lecture seule</span> · mis à jour automatiquement (${maj})</p>
+          <div class="table-wrap"><table class="data responsive">
+            <thead><tr><th>Semaine</th><th>Nom du locataire</th><th>Numéro de téléphone</th></tr></thead>
+            <tbody>${d.lignes.map((r) => `<tr>
+              <td data-label="Semaine" class="apt" style="border-left-color:${esc(r.couleur)}"><b>S${r.semaine}</b> · ${f(r.date_arrivee)} → ${f(r.date_depart)}<span class="sub">${esc(r.appartement)}</span></td>
+              <td data-label="Locataire"><b>${esc(r.locataire)}</b></td>
+              <td data-label="Téléphone">${r.telephone ? `<a href="tel:${esc(r.telephone.replace(/\s/g, ''))}">${esc(r.telephone)}</a>` : ''}</td>
+            </tr>`).join('') || '<tr><td colspan="3" class="empty">Aucune semaine à venir.</td></tr>'}</tbody>
+          </table></div>`;
+      } else {
+        document.title = 'Recettes — comptable';
+        const years = [annee - 2, annee - 1, annee, annee + 1].filter((y, i, a) => a.indexOf(y) === i);
+        view.innerHTML = `
+          <div class="page-head"><h1>💶 Recettes encaissées</h1>
+            <select id="y" style="width:auto">${years.map((y) => `<option ${y === d.annee ? 'selected' : ''}>${y}</option>`).join('')}</select>
+            <a class="btn" href="/api/public/${encodeURIComponent(token)}/comptable.xlsx?annee=${d.annee}">⬇︎ Excel</a></div>
+          <p class="muted small-text"><span class="badge grey ro">Lecture seule</span> · année d'encaissement ${d.annee} · ${maj}</p>
+          <div class="grid cols-3">${d.totaux.map((t) => `<div class="card"><div class="kpi"><div class="label">${esc(t.appartement)}</div><div class="value">${Calc.formatEuro(t.total)}</div></div></div>`).join('')}
+            <div class="card"><div class="kpi"><div class="label">Total</div><div class="value">${Calc.formatEuro(d.total)}</div></div></div></div>
+          <div class="table-wrap" style="margin-top:1rem"><table class="data responsive">
+            <thead><tr><th>Date</th><th>Appartement</th><th>Locataire</th><th>Nature</th><th class="right">Montant</th></tr></thead>
+            <tbody>${d.lignes.map((l) => `<tr><td data-label="Date">${f(l.date)}</td><td data-label="Appartement">${esc(l.appartement)}</td><td data-label="Locataire">${esc(l.locataire)}</td><td data-label="Nature">${esc(l.nature)}</td><td data-label="Montant" class="right">${Calc.formatEuro(l.montant)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Aucun encaissement.</td></tr>'}</tbody>
+          </table></div>`;
+        document.getElementById('y').onchange = (e) => { annee = Number(e.target.value); load(); };
+      }
+      return true;
+    }
+
+    load().then((ok) => {
+      if (!ok) return;
+      const es = new EventSource(`/api/public/${encodeURIComponent(token)}/events`);
+      let t;
+      es.addEventListener('change', () => { clearTimeout(t); t = setTimeout(load, 300); });
+    });
+  })();
+  </script>
+</body>
+</html>
