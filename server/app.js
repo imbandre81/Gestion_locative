@@ -8,6 +8,7 @@ const Calc = require('../public/calc');
 const DB = require('./db');
 const { createModel, ValidationError } = require('./model');
 const X = require('./exports');
+const Contrats = require('./contrats');
 
 function createApp({ dataDir = path.join(__dirname, '..', 'data'), adminPassword = process.env.ADMIN_PASSWORD } = {}) {
   const db = DB.open(dataDir);
@@ -206,32 +207,78 @@ function createApp({ dataDir = path.join(__dirname, '..', 'data'), adminPassword
   app.delete('/api/modeles/:id', mutate((req) => { db.prepare('DELETE FROM modeles WHERE id = ?').run(Number(req.params.id)); return { ok: true }; }));
 
   // ---------- Contrat de location ----------
-  const contratText = (r) => {
+  const PROPRIO_FIELDS = ['nom', 'prenom', 'adresse', 'telephone', 'email', 'lieu_signature'];
+  const proprietaire = () => { try { return JSON.parse(DB.getSetting(db, 'proprietaire') || '{}'); } catch { return {}; } };
+  const signaturePath = () => ['png', 'jpg'].map((e) => path.join(dataDir, `signature.${e}`)).find((f) => fs.existsSync(f));
+  const contrat = (r) => {
     const apt = model.appartement(r.appartement_id);
-    const pre = DB.getSetting(db, 'contrat')
-      .replace(/\{declaloc\}/g, apt.declaloc || '—')
-      .replace(/\{nb_adultes\}/g, String(r.nb_adultes))
-      .replace(/\{nb_enfants\}/g, String(r.nb_enfants))
-      .replace(/\{menage\}/g, r.menage_inclus ? 'inclus' : 'non inclus')
-      .replace(/\{date_du_jour\}/g, Calc.formatDate(Calc.todayISO()));
-    return Calc.fillTemplate(pre, r, apt);
+    return Contrats.fusionner(apt.contrat || Contrats.modelePour(apt.nom), r, apt, proprietaire());
   };
-  app.get('/api/reglages/contrat', (req, res) => res.json({ texte: DB.getSetting(db, 'contrat') }));
-  app.put('/api/reglages/contrat', (req, res) => {
-    const texte = String((req.body && req.body.texte) || '');
-    if (!texte.trim()) return res.status(400).json({ error: 'Le modèle de contrat ne peut pas être vide.' });
-    DB.setSetting(db, 'contrat', texte);
-    res.json({ texte });
+  const contratFichier = (r) => {
+    const slug = r.nom_locataire.normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+    return `contrat-${slug}-S${r.semaine}-${r.annee}.pdf`;
+  };
+  const contratPdf = (r, texte) => X.contratPdf(texte, {
+    titre: `Contrat de location — ${r.nom_locataire}`,
+    locataire: [r.prenom_locataire, r.nom_locataire].filter(Boolean).join(' '),
+    signature: signaturePath(),
   });
+  // Texte éventuellement retouché dans l'interface, sinon le modèle fusionné.
+  const texteDemande = (req, r) => {
+    const t = req.body && typeof req.body.texte === 'string' ? req.body.texte : '';
+    return t.trim() ? t : contrat(r).texte;
+  };
+
+  app.get('/api/reglages/proprietaire', (req, res) => res.json({ ...proprietaire(), signature: !!signaturePath(), variables: Contrats.VARIABLES_CONTRAT }));
+  app.put('/api/reglages/proprietaire', (req, res) => {
+    const p = Object.fromEntries(PROPRIO_FIELDS.map((f) => [f, String((req.body || {})[f] ?? '').trim().slice(0, 300)]));
+    DB.setSetting(db, 'proprietaire', JSON.stringify(p));
+    res.json({ ...p, signature: !!signaturePath() });
+  });
+  const uploadSignature = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+  app.post('/api/reglages/signature', uploadSignature.single('fichier'), (req, res) => {
+    const f = req.file;
+    const ext = f && (f.mimetype === 'image/png' ? 'png' : f.mimetype === 'image/jpeg' ? 'jpg' : null);
+    if (!ext) return res.status(400).json({ error: 'Choisissez une image PNG ou JPEG.' });
+    for (const old of ['png', 'jpg']) fs.rmSync(path.join(dataDir, `signature.${old}`), { force: true });
+    fs.writeFileSync(path.join(dataDir, `signature.${ext}`), f.buffer);
+    res.json({ ok: true });
+  });
+  app.get('/api/reglages/signature', (req, res) => {
+    const f = signaturePath();
+    if (!f) return res.status(404).end();
+    res.set('Cache-Control', 'no-store');
+    res.sendFile(f);
+  });
+  app.delete('/api/reglages/signature', (req, res) => {
+    for (const e of ['png', 'jpg']) fs.rmSync(path.join(dataDir, `signature.${e}`), { force: true });
+    res.json({ ok: true });
+  });
+  app.get('/api/contrats/modele-defaut/:id', (req, res) => {
+    const apt = model.appartement(Number(req.params.id));
+    return apt ? res.json({ texte: Contrats.modelePour(apt.nom) }) : res.status(404).end();
+  });
+
   app.get('/api/reservations/:id/contrat', (req, res) => {
     const r = model.reservation(Number(req.params.id));
-    return r ? res.json({ texte: contratText(r) }) : res.status(404).end();
+    return r ? res.json({ ...contrat(r), signature: !!signaturePath() }) : res.status(404).end();
   });
-  app.get('/api/reservations/:id/contrat.pdf', wrap(async (req, res) => {
+  app.all('/api/reservations/:id/contrat.pdf', wrap(async (req, res) => {
+    if (!['GET', 'POST'].includes(req.method)) return res.status(405).end();
     const r = model.reservation(Number(req.params.id));
     if (!r) return res.status(404).end();
-    const slug = r.nom_locataire.normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
-    sendFile(res, await X.contratPdf(contratText(r), `Contrat ${r.nom_locataire}`), `contrat-${slug}-S${r.semaine}-${r.annee}.pdf`, 'application/pdf');
+    sendFile(res, await contratPdf(r, texteDemande(req, r)), contratFichier(r), 'application/pdf');
+  }));
+  // Archive le contrat généré dans les documents de la réservation (type « contrat envoyé »).
+  app.post('/api/reservations/:id/contrat/archiver', mutate(async (req) => {
+    const r = model.reservation(Number(req.params.id));
+    if (!r) throw new ValidationError('Réservation introuvable.', 404);
+    const buf = await contratPdf(r, texteDemande(req, r));
+    const filename = crypto.randomBytes(16).toString('hex') + '.pdf';
+    fs.writeFileSync(path.join(uploadDir, filename), buf);
+    db.prepare('INSERT INTO documents (reservation_id, type, filename, original_name, mime, size) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(r.id, 'contrat_envoye', filename, contratFichier(r), 'application/pdf', buf.length);
+    return model.reservation(r.id).documents;
   }));
 
   app.put('/api/reglages/mot-de-passe', (req, res) => {

@@ -165,17 +165,67 @@ function menagePdf(rows, subtitle) {
   });
 }
 
-function contratPdf(text, titre) {
+/** Écrit une ligne en gérant le **gras** en ligne. */
+function richLine(doc, line, opts = {}) {
+  const parts = line.split(/(\*\*[^*]+\*\*)/).filter((p) => p !== '');
+  if (!parts.length) return doc.text(' ', opts);
+  // Mélange gras/normal : PDFKit perd les espaces aux jonctions et justifie mal les segments « continued ».
+  const o = parts.length > 1 ? { ...opts, align: 'left' } : opts;
+  parts.forEach((p, i) => {
+    const bold = /^\*\*[^*]+\*\*$/.test(p);
+    const txt = (bold ? p.slice(2, -2) : p).replace(/^ /, '\u00a0').replace(/ $/, '\u00a0');
+    doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').text(txt, { ...o, continued: i < parts.length - 1 });
+  });
+  doc.font('Helvetica');
+}
+
+/**
+ * Contrat en PDF à partir du texte balisé :
+ * « # » titre, « ## » intertitre, **gras**, [SIGNATURES], [SAUT DE PAGE].
+ */
+function contratPdf(text, { titre, locataire, signature } = {}) {
   return pdfBuffer((doc) => {
-    const [first, ...rest] = text.split('\n');
-    doc.font('Helvetica-Bold').fontSize(14).text(first, { align: 'center' });
-    doc.moveDown(0.5);
-    doc.font('Helvetica').fontSize(10);
-    for (const line of rest) {
-      if (/^\d+\.\s|^[A-ZÉÈÀ' ]{6,}$/.test(line.trim())) doc.moveDown(0.3).font('Helvetica-Bold').text(line).font('Helvetica');
-      else doc.text(line || ' ');
+    const left = doc.page.margins.left;
+    const width = doc.page.width - left - doc.page.margins.right;
+    const signatures = () => {
+      const h = 95;
+      if (doc.y + h > doc.page.height - doc.page.margins.bottom) doc.addPage();
+      doc.moveDown(0.8);
+      const y = doc.y;
+      const col = width / 2;
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#222');
+      doc.text('Le propriétaire', left, y, { width: col - 10 });
+      doc.text('Le locataire (« lu et approuvé »)', left + col, y, { width: col - 10 });
+      if (signature) {
+        try { doc.image(signature, left, y + 16, { fit: [150, 60] }); } catch { /* image illisible : on l'ignore */ }
+      }
+      doc.font('Helvetica').fontSize(8.5).fillColor('#666').text(locataire || '', left + col, y + 70, { width: col - 10 });
+      doc.fillColor('#222').fontSize(10);
+      doc.x = left;
+      doc.y = y + h;
+    };
+
+    doc.fontSize(10).fillColor('#222');
+    for (const raw of String(text).split('\n')) {
+      const line = raw.replace(/\s+$/, '');
+      if (line.trim() === '[SAUT DE PAGE]') { doc.addPage(); continue; }
+      if (line.trim() === '[SIGNATURES]') { signatures(); continue; }
+      if (line.startsWith('# ')) {
+        doc.font('Helvetica-Bold').fontSize(14).text(line.slice(2), left, doc.y, { width, align: 'center' });
+        doc.fontSize(10).moveDown(0.3);
+        continue;
+      }
+      if (line.startsWith('## ')) {
+        if (doc.y > doc.page.height - doc.page.margins.bottom - 60) doc.addPage();
+        doc.moveDown(0.5).font('Helvetica-Bold').fontSize(10.5).fillColor('#1f3b57').text(line.slice(3), left, doc.y, { width, underline: true });
+        doc.fillColor('#222').fontSize(10).font('Helvetica').moveDown(0.25);
+        continue;
+      }
+      if (!line.trim()) { doc.moveDown(0.45); continue; }
+      doc.x = left;
+      richLine(doc, line, { width, align: 'justify', paragraphGap: 2, lineGap: 1 });
     }
-  }, { margin: 50, info: { Title: titre } });
+  }, { margin: 50, info: { Title: titre || 'Contrat de location saisonnière' } });
 }
 
 module.exports = { reservationsXlsx, reservationsPdf, menagePdf, comptableXlsx, contratPdf };

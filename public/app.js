@@ -435,7 +435,7 @@
     try {
       r = id ? await api(`/api/reservations/${id}`) : {
         appartement_id: Number(defaults.appartement_id) || S.apts[0]?.id, date_arrivee: defaults.date_arrivee || '', date_depart: defaults.date_depart || (defaults.date_arrivee ? C.addDays(defaults.date_arrivee, 7) : ''),
-        nom_locataire: '', prenom_locataire: '', telephone: '', email: '', nb_adultes: 2, nb_enfants: 0, montant_sejour: '', menage_inclus: false, infos: '', documents: [],
+        nom_locataire: '', prenom_locataire: '', adresse_locataire: '', telephone: '', email: '', nb_adultes: 2, nb_enfants: 0, montant_sejour: '', menage_inclus: false, infos: '', documents: [],
       };
     } catch (e) { return fail(e); }
 
@@ -460,6 +460,7 @@
             <label class="field span-2">Prénom <span class="hint">(pour les messages — facultatif)</span><input name="prenom_locataire" value="${v('prenom_locataire')}"></label>
             <label class="field span-2">Téléphone<input type="tel" name="telephone" value="${v('telephone')}" inputmode="tel"></label>
             <label class="field span-2">E-mail <span class="hint">(facultatif)</span><input type="email" name="email" value="${v('email')}"></label>
+            <label class="field span-4">Adresse postale <span class="hint">(pour le contrat)</span><input name="adresse_locataire" value="${v('adresse_locataire')}" autocomplete="off" placeholder="N°, rue, code postal, ville"></label>
             <label class="field">Adultes<input type="number" name="nb_adultes" min="0" step="1" value="${v('nb_adultes')}"></label>
             <label class="field">Enfants (mineurs)<input type="number" name="nb_enfants" min="0" step="1" value="${v('nb_enfants')}"></label>
             <label class="field">Total personnes<div class="computed" id="c-personnes">—</div></label>
@@ -494,7 +495,7 @@
       <div class="modal-foot">
         ${id ? '<button type="button" class="danger" id="resa-delete">🗑 Supprimer</button>' : ''}
         <button type="button" id="resa-message">✉️ Générer le message</button>
-        ${id ? '<button type="button" id="resa-contrat">📄 Contrat</button>' : ''}
+        ${id ? '<button type="button" id="resa-contrat">📄 Contrat de location</button>' : ''}
         <span class="grow"></span>
         <button type="button" data-close>Annuler</button>
         <button type="submit" class="primary">Enregistrer</button>
@@ -557,7 +558,11 @@
         if (!confirm(`Supprimer définitivement la réservation de ${r.nom_locataire} ?`)) return;
         try { await api(`/api/reservations/${id}`, { method: 'DELETE' }); toast('Réservation supprimée'); closeModal(); } catch (err) { fail(err); }
       };
-      $('#resa-contrat', modal).onclick = () => openContract(id);
+      // Enregistre d'abord la fiche pour que le contrat reprenne les dernières saisies.
+      $('#resa-contrat', modal).onclick = async () => {
+        if (!form.reportValidity()) return;
+        try { await api(`/api/reservations/${id}`, { method: 'PUT', body: readForm() }); openContract(id); } catch (err) { fail(err); }
+      };
       const bindDocs = () => $$('[data-del-doc]', modal).forEach((b) => (b.onclick = async () => {
         if (!confirm('Supprimer ce document ?')) return;
         try { await api(`/api/documents/${b.dataset.delDoc}`, { method: 'DELETE' }); b.closest('li').remove(); } catch (err) { fail(err); }
@@ -582,17 +587,82 @@
 
   const docsHtml = (docs) => (docs || []).map((d) => `<li><span class="badge grey">${esc(DOC_TYPES[d.type] || d.type)}</span><a href="/api/documents/${d.id}" target="_blank" rel="noopener">${esc(d.original_name)}</a><span class="muted small-text">${fdate(d.created_at)}</span><button type="button" class="small ghost" data-del-doc="${d.id}" aria-label="Supprimer">✕</button></li>`).join('') || '<li class="muted small-text">Aucun document joint (CNI, contrat signé, contrat envoyé, RIB…).</li>';
 
+  /** Rendu HTML du texte balisé d'un contrat (# titre, ## intertitre, **gras**, [SIGNATURES], [SAUT DE PAGE]). */
+  function contractHtml(text, signatureUrl, locataire) {
+    const inline = (l) => esc(l)
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/…{3,}/g, '<mark title="Information manquante">$&</mark>')
+      .replace(/\{([a-z_]+)\}/g, '<mark title="Variable inconnue">{$1}</mark>');
+    return String(text).split('\n').map((l) => {
+      const t = l.trim();
+      if (t === '[SAUT DE PAGE]') return '<hr class="page-break">';
+      if (t === '[SIGNATURES]') {
+        return `<div class="sig"><div><b>Le propriétaire</b>${signatureUrl ? `<img src="${signatureUrl}" alt="Signature">` : ''}</div><div><b>Le locataire (« lu et approuvé »)</b><small>${esc(locataire)}</small></div></div>`;
+      }
+      if (l.startsWith('# ')) return `<h1>${inline(l.slice(2))}</h1>`;
+      if (l.startsWith('## ')) return `<h2>${inline(l.slice(3))}</h2>`;
+      if (!t) return '<div class="gap"></div>';
+      return `<p>${inline(l)}</p>`;
+    }).join('');
+  }
+
+  async function downloadPost(url, body, fallbackName) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new ApiError(`Erreur ${res.status}`);
+    const name = (res.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || fallbackName;
+    const href = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement('a'), { href, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 5000);
+  }
+
   async function openContract(id) {
-    try {
-      const { texte } = await api(`/api/reservations/${id}/contrat`);
-      const m = openModal(`${modalHead('📄 Contrat de location (pré-rempli)')}
-        <div class="modal-body"><p class="muted small-text" style="margin:0">Généré à partir de la réservation et du modèle de contrat (modifiable dans Réglages). Vous pouvez ajuster le texte avant de le copier.</p>
-        <textarea class="message-editor" id="contract-text">${esc(texte)}</textarea></div>
-        <div class="modal-foot"><button type="button" id="contract-back">◀ Retour à la fiche</button><span class="grow"></span>
-        <button type="button" id="contract-copy">📋 Copier</button><a class="btn primary" href="/api/reservations/${id}/contrat.pdf">⬇︎ Télécharger en PDF</a></div>`);
-      $('#contract-copy', m).onclick = () => copyText($('#contract-text', m).value);
-      $('#contract-back', m).onclick = () => openReservation(id);
-    } catch (e) { fail(e); }
+    let r, c;
+    try { [r, c] = await Promise.all([api(`/api/reservations/${id}`), api(`/api/reservations/${id}/contrat`)]); } catch (e) { return fail(e); }
+    const sigUrl = c.signature ? `/api/reglages/signature?t=${Date.now()}` : '';
+    const locataire = [r.prenom_locataire, r.nom_locataire].filter(Boolean).join(' ');
+    const m = openModal(`${modalHead(`📄 Contrat — ${esc(locataire)}`, `<span class="apt-chip">${aptChip(r.appartement_id)}</span>`)}
+      <div class="modal-body">
+        ${c.manquants.length ? `<div class="banner"><b>À compléter avant l'envoi :</b><ul style="margin:.3rem 0 0;padding-left:1.2rem">${c.manquants.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+          <div class="small-text" style="margin-top:.3rem">Les informations manquantes apparaissent en pointillés surlignés. Complétez la fiche ou les <a href="#/reglages" data-close>Réglages</a>, puis rouvrez le contrat.</div></div>` : ''}
+        <div class="row">
+          <div class="segmented"><button type="button" data-tab="apercu" class="on">Aperçu</button><button type="button" data-tab="texte">Modifier le texte</button></div>
+          <span class="muted small-text grow">Les retouches valent pour ce contrat uniquement ; le modèle se modifie dans Réglages.</span>
+        </div>
+        <div class="contract-paper" id="contract-preview"></div>
+        <textarea class="message-editor" id="contract-text" hidden>${esc(c.texte)}</textarea>
+      </div>
+      <div class="modal-foot">
+        <button type="button" id="contract-back">◀ Fiche</button>
+        <button type="button" id="contract-reset" title="Repartir du modèle">↻ Régénérer</button>
+        <span class="grow"></span>
+        <button type="button" id="contract-mail">✉️ Mail d'envoi</button>
+        <button type="button" id="contract-archive" title="Ajouter le PDF aux documents de la réservation">🗂 Classer au dossier</button>
+        <button type="button" class="primary" id="contract-pdf">⬇︎ PDF</button>
+      </div>`);
+    const ta = $('#contract-text', m);
+    const preview = () => { $('#contract-preview', m).innerHTML = contractHtml(ta.value, sigUrl, locataire); };
+    preview();
+    $$('[data-tab]', m).forEach((b) => (b.onclick = () => {
+      $$('[data-tab]', m).forEach((x) => x.classList.toggle('on', x === b));
+      const edit = b.dataset.tab === 'texte';
+      ta.hidden = !edit;
+      $('#contract-preview', m).hidden = edit;
+      if (!edit) preview();
+    }));
+    $('#contract-back', m).onclick = () => openReservation(id);
+    $('#contract-reset', m).onclick = () => { if (confirm('Abandonner les retouches et régénérer le contrat depuis le modèle ?')) openContract(id); };
+    $('#contract-pdf', m).onclick = () => downloadPost(`/api/reservations/${id}/contrat.pdf`, { texte: ta.value }, 'contrat.pdf').catch(fail);
+    $('#contract-archive', m).onclick = async () => {
+      try {
+        await api(`/api/reservations/${id}/contrat/archiver`, { method: 'POST', body: { texte: ta.value } });
+        toast('🗂 Contrat classé dans les documents (« Contrat envoyé »)');
+      } catch (e) { fail(e); }
+    };
+    $('#contract-mail', m).onclick = () => {
+      const mod = S.modeles.find((x) => x.categorie === 'reservation' && String(x.appartement_id) === String(r.appartement_id));
+      openMessageGenerator(r, mod && mod.id);
+    };
   }
 
   // ---------------------------------------------------------------- Génération de messages
@@ -805,7 +875,8 @@
 
   // ---------------------------------------------------------------- Réglages
   async function renderReglages(view) {
-    const [{ texte }, me] = await Promise.all([api('/api/reglages/contrat'), api('/api/me')]);
+    const [proprio, me] = await Promise.all([api('/api/reglages/proprietaire'), api('/api/me')]);
+    S.contratApt = S.contratApt || S.apts[0]?.id;
     const example = (a) => {
       const t = C.touristTax({ date_arrivee: '2026-02-07', date_depart: '2026-02-14', nb_adultes: 2, nb_enfants: 2, montant_sejour: 1200 }, a);
       return `Exemple : séjour de 1 200 € · 7 nuits · 2 adultes + 2 enfants → nuitée ${euro(t.prixNuiteeParPersonne)}/pers., taxe ${euro(t.taxeParNuitParPersonne)}/nuit/adulte${t.plafonne ? ' (plafonnée)' : ''} → <b>${euro(t.total)}</b>`;
@@ -820,8 +891,10 @@
             <label class="field span-2">Nom<input name="nom" value="${esc(a.nom)}" required></label>
             <label class="field">Caution (€)<input type="number" step="1" min="0" name="caution" value="${a.caution}"></label>
             <label class="field">Couleur<input type="color" name="couleur" value="${esc(a.couleur)}"></label>
-            <label class="field span-4">Adresse / chalet<input name="adresse" value="${esc(a.adresse)}"></label>
-            <label class="field span-4">N° d'enregistrement Declaloc<input name="declaloc" value="${esc(a.declaloc)}" placeholder="ex. 73123000001AB"></label>
+            <label class="field span-4">Adresse complète du logement <span class="hint">(reprise dans le contrat)</span><input name="adresse" value="${esc(a.adresse)}"></label>
+            <label class="field span-2">N° d'enregistrement Declaloc<input name="declaloc" value="${esc(a.declaloc)}" placeholder="ex. 73123000001AB"></label>
+            <label class="field">Capacité (pers.)<input type="number" min="1" step="1" name="capacite" value="${a.capacite}"></label>
+            <label class="field">Arrivée / départ<span class="row" style="gap:.3rem;flex-wrap:nowrap"><input name="heure_arrivee" value="${esc(a.heure_arrivee)}" aria-label="Heure d'arrivée"><input name="heure_depart" value="${esc(a.heure_depart)}" aria-label="Heure de départ"></span></label>
           </div>
           <h3 style="margin-top:1rem">Taxe de séjour (meublé non classé, au réel)</h3>
           <div class="form-grid">
@@ -835,12 +908,38 @@
           <div class="row"><span class="grow"></span><button class="primary" type="submit">Enregistrer</button></div>
         </form>`).join('')}
       </div>
+      <div class="grid cols-2" style="margin-top:1rem">
+        <form class="card" id="owner-form">
+          <h2>👤 Propriétaire (en-tête des contrats)</h2>
+          <div class="form-grid">
+            <label class="field span-2">Nom<input name="nom" value="${esc(proprio.nom)}" autocomplete="family-name"></label>
+            <label class="field span-2">Prénom<input name="prenom" value="${esc(proprio.prenom)}" autocomplete="given-name"></label>
+            <label class="field span-4">Adresse<input name="adresse" value="${esc(proprio.adresse)}" autocomplete="street-address"></label>
+            <label class="field span-2">Téléphone<input type="tel" name="telephone" value="${esc(proprio.telephone)}"></label>
+            <label class="field span-2">E-mail<input type="email" name="email" value="${esc(proprio.email)}"></label>
+            <label class="field span-2">Lieu de signature<input name="lieu_signature" value="${esc(proprio.lieu_signature)}" placeholder="« Fait à … »"></label>
+          </div>
+          <div class="row" style="margin-top:.6rem"><span class="grow"></span><button class="primary" type="submit">Enregistrer</button></div>
+          <p class="small-text muted">Ces informations restent dans la base de l'application (jamais dans le code source).</p>
+        </form>
+        <div class="card">
+          <h2>✍️ Signature</h2>
+          <p class="small-text muted" style="margin-top:0">Image de votre signature (PNG sur fond transparent ou blanc), apposée automatiquement dans les PDF de contrat.</p>
+          <div class="signature-box">${proprio.signature ? `<img src="/api/reglages/signature?t=${Date.now()}" alt="Signature enregistrée">` : '<span class="muted small-text">Aucune signature enregistrée</span>'}</div>
+          <div class="row" style="margin-top:.6rem">
+            <input type="file" id="sig-file" accept="image/png,image/jpeg" class="grow">
+            <button type="button" id="sig-upload">⬆︎ Enregistrer</button>
+            ${proprio.signature ? '<button type="button" class="danger" id="sig-delete">Retirer</button>' : ''}
+          </div>
+        </div>
+      </div>
       <form class="card" id="contract-form" style="margin-top:1rem">
-        <h2>📄 Modèle de contrat de location</h2>
-        <p class="small-text muted">Utilisé par le bouton « Contrat » de chaque réservation. Variables disponibles :</p>
-        <div class="var-list" style="margin-bottom:.6rem">${[...C.VARIABLES, 'declaloc', 'nb_adultes', 'nb_enfants', 'menage', 'date_du_jour'].map((x) => `<button type="button" data-var="${x}">{${x}}</button>`).join('')}</div>
-        <textarea name="texte" class="message-editor">${esc(texte)}</textarea>
-        <div class="row" style="margin-top:.6rem"><span class="grow"></span><button class="primary" type="submit">Enregistrer le modèle</button></div>
+        <div class="row" style="margin-bottom:.5rem"><h2 class="grow" style="margin:0">📄 Modèle de contrat de location</h2>
+          <select id="contract-apt" style="width:auto">${S.apts.map((a) => `<option value="${a.id}" ${String(a.id) === String(S.contratApt) ? 'selected' : ''}>${esc(a.nom)}</option>`).join('')}</select></div>
+        <p class="small-text muted">Un modèle par appartement, utilisé par le bouton « Contrat » de chaque réservation. Mise en forme : <code># Titre</code>, <code>## Intertitre</code>, <code>**gras**</code>, <code>[SIGNATURES]</code>, <code>[SAUT DE PAGE]</code>. Cliquez sur une variable pour l'insérer :</p>
+        <div class="var-list" style="margin-bottom:.6rem">${proprio.variables.map((x) => `<button type="button" data-var="${x}">{${x}}</button>`).join('')}</div>
+        <textarea name="texte" class="message-editor" style="min-height:28rem">${esc(S.aptById[S.contratApt]?.contrat || '')}</textarea>
+        <div class="row" style="margin-top:.6rem"><button type="button" id="contract-default" class="ghost">↺ Restaurer le modèle d'origine</button><span class="grow"></span><button class="primary" type="submit">Enregistrer le modèle</button></div>
       </form>
       <div class="grid cols-2" style="margin-top:1rem">
         <form class="card" id="pw-form">
@@ -870,10 +969,31 @@
       const ta = cf.elements.texte; const ins = `{${b.dataset.var}}`; const s = ta.selectionStart;
       ta.value = ta.value.slice(0, s) + ins + ta.value.slice(ta.selectionEnd); ta.focus(); ta.setSelectionRange(s + ins.length, s + ins.length);
     }));
+    $('#contract-apt').onchange = (e) => { S.contratApt = e.target.value; cf.elements.texte.value = S.aptById[S.contratApt].contrat || ''; };
+    $('#contract-default').onclick = async () => {
+      if (!confirm("Remplacer le texte par le modèle d'origine ? (il ne sera enregistré qu'en cliquant sur « Enregistrer le modèle »)")) return;
+      cf.elements.texte.value = (await api(`/api/contrats/modele-defaut/${S.contratApt}`)).texte;
+    };
     cf.onsubmit = async (e) => {
       e.preventDefault();
-      try { await api('/api/reglages/contrat', { method: 'PUT', body: { texte: cf.elements.texte.value } }); toast('✓ Modèle de contrat enregistré'); } catch (err) { fail(err); }
+      try {
+        const a = await api(`/api/appartements/${S.contratApt}`, { method: 'PUT', body: { contrat: cf.elements.texte.value } });
+        S.aptById[a.id].contrat = a.contrat;
+        toast('✓ Modèle de contrat enregistré');
+      } catch (err) { fail(err); }
     };
+    $('#owner-form').onsubmit = async (e) => {
+      e.preventDefault();
+      try { await api('/api/reglages/proprietaire', { method: 'PUT', body: Object.fromEntries(new FormData(e.target).entries()) }); toast('✓ Propriétaire enregistré'); } catch (err) { fail(err); }
+    };
+    $('#sig-upload').onclick = async () => {
+      const file = $('#sig-file').files[0];
+      if (!file) return toast('Choisissez une image.', true);
+      const fd = new FormData();
+      fd.append('fichier', file);
+      try { await api('/api/reglages/signature', { method: 'POST', form: fd }); toast('✓ Signature enregistrée'); render(); } catch (err) { fail(err); }
+    };
+    if ($('#sig-delete')) $('#sig-delete').onclick = async () => { await api('/api/reglages/signature', { method: 'DELETE' }).catch(fail); render(); };
     $('#pw-form').onsubmit = async (e) => {
       e.preventDefault();
       try { await api('/api/reglages/mot-de-passe', { method: 'PUT', body: Object.fromEntries(new FormData(e.target).entries()) }); toast('✓ Mot de passe modifié'); e.target.reset(); } catch (err) { fail(err); }

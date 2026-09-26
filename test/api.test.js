@@ -86,11 +86,6 @@ test('exports Excel, PDF, contrat et comptabilité', async () => {
   const pdf = await call('/api/export/reservations.pdf');
   assert.equal(pdf.data.subarray(0, 4).toString(), '%PDF');
   assert.equal((await call('/api/export/menage.pdf')).data.subarray(0, 4).toString(), '%PDF');
-  const list = (await call('/api/reservations')).data;
-  const contrat = (await call(`/api/reservations/${list[0].id}/contrat`)).data.texte;
-  assert.match(contrat, /Famille Durand/);
-  assert.match(contrat, /450,00 €/);
-  assert.equal((await call(`/api/reservations/${list[0].id}/contrat.pdf`)).data.subarray(0, 4).toString(), '%PDF');
   const annee = new Date().getFullYear();
   const compta = (await call(`/api/comptabilite?annee=${annee}`)).data;
   assert.equal(compta.total, 450); // acompte encaissé aujourd'hui
@@ -104,4 +99,56 @@ test('tableau de bord', async () => {
   assert.equal(da.encaisse, 450);
   assert.equal(da.restant, 1950);
   assert.ok(d.alertes.length > 0);
+});
+
+test('contrat de location : fusion, informations manquantes, PDF, archivage', async () => {
+  const r = (await call('/api/reservations', { method: 'POST', body: {
+    appartement_id: 1, date_arrivee: '2026-12-26', date_depart: '2027-01-02', nom_locataire: 'PRIMAUD', prenom_locataire: 'Morgan',
+    telephone: '06 00 00 00 00', email: 'morgan@example.com', nb_adultes: 4, nb_enfants: 4, montant_sejour: 1150,
+  } })).data;
+
+  let c = (await call(`/api/reservations/${r.id}/contrat`)).data;
+  assert.ok(c.manquants.some((m) => m.includes('Adresse postale du locataire')));
+  assert.ok(c.manquants.some((m) => m.includes('Nom du propriétaire')));
+  assert.match(c.texte, /Morgan PRIMAUD/);
+  assert.match(c.texte, /Cette somme de \*\*345,00 €\*\*/);        // acompte 30 %
+  assert.match(c.texte, /avant le 26\/11\/2026/);                   // arrivée − 1 mois
+  assert.match(c.texte, /4 adultes et 4 enfants/);
+  assert.match(c.texte, /dépôt de garantie de 500,00 €/);
+  assert.doesNotMatch(c.texte, /\{[a-z_]+\}/, 'toutes les variables sont remplacées');
+  const taxe = r.taxe_sejour;
+  assert.ok(c.texte.includes(`solde du loyer de ${(805 + taxe).toLocaleString('fr-FR', { minimumFractionDigits: 2 }).replace(/ | /g, ' ')} €`));
+
+  await call('/api/reglages/proprietaire', { method: 'PUT', body: { nom: 'Test', prenom: 'Proprio', adresse: '1 rue X', telephone: '01', email: 'p@example.com', lieu_signature: 'Mâcon' } });
+  await call(`/api/reservations/${r.id}`, { method: 'PUT', body: { adresse_locataire: '1 rue des Tests 62000 Arras' } });
+  await call('/api/appartements/1', { method: 'PUT', body: { declaloc: '73123000001AB' } });
+  c = (await call(`/api/reservations/${r.id}/contrat`)).data;
+  assert.deepEqual(c.manquants, []);
+  assert.match(c.texte, /Nom : \*\*TEST\*\*/);
+  assert.match(c.texte, /Fait en deux exemplaires à Mâcon/);
+  assert.match(c.texte, /Deux|Giettaz/);
+
+  // Modèle Deux Alpes : ménage inclus en majuscules.
+  const r2 = (await call('/api/reservations', { method: 'POST', body: { appartement_id: 2, date_arrivee: '2027-01-09', date_depart: '2027-01-16', nom_locataire: 'HENNART', nb_adultes: 7, montant_sejour: 950, menage_inclus: true } })).data;
+  const c2 = (await call(`/api/reservations/${r2.id}/contrat`)).data;
+  assert.match(c2.texte, /MÉNAGE INCLUS/);
+  assert.match(c2.texte, /pour 7 adultes/);
+  assert.match(c2.texte, /dépôt de garantie de 900,00 €/);
+
+  // PDF à partir d'un texte retouché, puis classement dans les documents.
+  const res = await fetch(`${base}/api/reservations/${r.id}/contrat.pdf`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ texte: '# Titre\n**Gras** normal\n[SIGNATURES]' }) });
+  assert.equal(res.status, 200);
+  assert.equal(Buffer.from(await res.arrayBuffer()).subarray(0, 4).toString(), '%PDF');
+  assert.equal((await call(`/api/reservations/${r.id}/contrat.pdf`)).data.subarray(0, 4).toString(), '%PDF');
+  const docs = (await call(`/api/reservations/${r.id}/contrat/archiver`, { method: 'POST', body: {} })).data;
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].type, 'contrat_envoye');
+
+  // Signature (PNG 1×1) intégrée au PDF.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  const fd = new FormData();
+  fd.append('fichier', new Blob([png], { type: 'image/png' }), 'signature.png');
+  assert.equal((await fetch(`${base}/api/reglages/signature`, { method: 'POST', headers: { Cookie: cookie }, body: fd })).status, 200);
+  assert.equal((await call('/api/reglages/proprietaire')).data.signature, true);
+  assert.equal((await call(`/api/reservations/${r.id}/contrat.pdf`)).status, 200);
 });

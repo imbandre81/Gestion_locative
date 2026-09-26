@@ -3,10 +3,10 @@ const Calc = require('../public/calc');
 
 const BOOL_FIELDS = ['menage_inclus', 'cni_recue', 'contrat_signe', 'acompte_paye', 'solde_paye', 'caution_recue', 'caution_encaissee', 'caution_rendue'];
 const DATE_FIELDS = ['cni_date', 'contrat_date', 'acompte_date', 'solde_date', 'caution_recue_date', 'caution_encaissee_date', 'caution_rendue_date'];
-const TEXT_FIELDS = ['nom_locataire', 'prenom_locataire', 'telephone', 'email', 'infos'];
+const TEXT_FIELDS = ['nom_locataire', 'prenom_locataire', 'adresse_locataire', 'telephone', 'email', 'infos'];
 const RESA_FIELDS = ['appartement_id', 'date_arrivee', 'date_depart', 'nb_adultes', 'nb_enfants', 'montant_sejour', ...TEXT_FIELDS, ...BOOL_FIELDS, ...DATE_FIELDS];
 
-const APT_FIELDS = ['nom', 'adresse', 'caution', 'taux_communal', 'plafond_communal', 'taux_departemental', 'age_exoneration', 'couleur', 'declaloc'];
+const APT_FIELDS = ['nom', 'adresse', 'caution', 'taux_communal', 'plafond_communal', 'taux_departemental', 'age_exoneration', 'couleur', 'declaloc', 'capacite', 'heure_arrivee', 'heure_depart', 'contrat'];
 
 class ValidationError extends Error {
   constructor(message, status = 400) {
@@ -141,6 +141,9 @@ function createModel(db) {
     for (const f of APT_FIELDS) if (f in input) d[f] = input[f];
     for (const f of ['caution', 'taux_communal', 'plafond_communal', 'taux_departemental']) d[f] = Math.max(0, Number(String(d[f]).replace(',', '.')) || 0);
     d.age_exoneration = parseInt(d.age_exoneration, 10) || 18;
+    d.capacite = Math.max(1, parseInt(d.capacite, 10) || 8);
+    for (const f of ['adresse', 'declaloc', 'heure_arrivee', 'heure_depart']) d[f] = String(d[f] ?? '').trim();
+    if (!String(d.contrat || '').trim()) throw new ValidationError('Le modèle de contrat ne peut pas être vide.');
     d.nom = String(d.nom || '').trim();
     if (!d.nom) throw new ValidationError('Le nom est obligatoire.');
     if (!/^#[0-9a-f]{6}$/i.test(d.couleur)) throw new ValidationError('Couleur invalide.');

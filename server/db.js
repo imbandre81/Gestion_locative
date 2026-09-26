@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 const seed = require('./seed');
+const { modelePour } = require('./contrats');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS appartements (
@@ -94,6 +95,7 @@ function open(dataDir) {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
   seedIfEmpty(db);
+  migrate(db);
   return db;
 }
 
@@ -109,7 +111,24 @@ function seedIfEmpty(db) {
   }
   const insMod = db.prepare('INSERT INTO modeles (titre, appartement_id, categorie, corps, ordre) VALUES (?, ?, ?, ?, ?)');
   seed.MODELES.forEach((m, i) => insMod.run(m.titre, m.appartement ? ids[m.appartement] : null, m.categorie, m.corps, i));
-  setSetting(db, 'contrat', seed.CONTRAT);
+}
+
+function addColumn(db, table, column, definition) {
+  const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+/** Évolutions du schéma appliquées aux bases existantes (idempotent). */
+function migrate(db) {
+  addColumn(db, 'reservations', 'adresse_locataire', "TEXT DEFAULT ''");
+  addColumn(db, 'appartements', 'capacite', 'INTEGER NOT NULL DEFAULT 8');
+  addColumn(db, 'appartements', 'heure_arrivee', "TEXT DEFAULT '14h'");
+  addColumn(db, 'appartements', 'heure_depart', "TEXT DEFAULT '10h'");
+  addColumn(db, 'appartements', 'contrat', 'TEXT');
+  const upd = db.prepare('UPDATE appartements SET contrat = ? WHERE id = ?');
+  for (const a of db.prepare('SELECT id, nom FROM appartements WHERE contrat IS NULL OR contrat = \'\'').all()) upd.run(modelePour(a.nom), a.id);
+  // L'ancien modèle de contrat unique est remplacé par un modèle par appartement.
+  db.prepare("DELETE FROM reglages WHERE cle = 'contrat'").run();
 }
 
 function getSetting(db, key) {

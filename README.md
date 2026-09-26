@@ -20,7 +20,9 @@ npm test                                             # tests des calculs et de l
 | `DATA_DIR` | dossier de la base `gestion.sqlite` et des documents joints | `./data` |
 | `COOKIE_SECURE` | `1` quand l'application est servie en HTTPS | — |
 
-**Sauvegarde** : il suffit de copier le dossier `data/` (base + pièces jointes).
+**Sauvegarde** : il suffit de copier le dossier `data/` (base, pièces jointes, signature).
+
+> 🔒 Les données personnelles (identité et adresse du propriétaire, signature, locataires) ne sont jamais dans le code source : elles se saisissent dans l'application et restent dans `data/`.
 Pour un accès depuis le téléphone, héberger derrière un reverse proxy HTTPS (Caddy, Nginx…) sur un petit serveur ou un NAS.
 
 ## Fonctionnalités
@@ -29,10 +31,11 @@ Pour un accès depuis le téléphone, héberger derrière un reverse proxy HTTPS
 - **Calendrier** : vue mensuelle (barres de l'arrivée au départ avec le nom du locataire) et planning annuel (semaines du samedi au samedi). Un appartement ou les deux superposés. La couleur de fond indique le statut, la bordure l'appartement. Un clic ouvre la fiche, un clic sur un jour libre crée une réservation.
 - **Dossiers** : le tableau récapitulatif complet. Tri, filtres (appartement, année, statut, recherche) et badges colorés. Un clic sur un badge coche ou décoche la case, après confirmation. Export Excel et PDF du tableau filtré.
 - **Fiche réservation** : la semaine, les nuits, le nombre de personnes, l'acompte (30 %), le solde (70 %) et la taxe de séjour se calculent en direct. Cocher une case renseigne la date du jour. On y suit aussi la caution (reçue, encaissée, rendue) et on y joint des documents (CNI, contrat signé ou envoyé, RIB). Deux boutons : « Générer le message » et « Contrat » (pré-rempli, téléchargeable en PDF).
+- **Contrat de location** : un contrat pour chaque locataire, généré à partir de la fiche. Un modèle par appartement, repris des contrats existants et complété des mentions usuelles des contrats types : location saisonnière sans maintien dans les lieux, capacité maximale, sous-location interdite, taxe de séjour, n° d'enregistrement, litiges. Le contrat se compose de trois parties : contrat, conditions générales et état descriptif. Les montants sont calculés automatiquement (acompte, solde taxe incluse, date limite à J-1 mois, caution). Les informations manquantes sont signalées. On peut retoucher le texte avant de l'exporter. Le PDF porte la signature scannée du propriétaire, et on peut le classer dans les documents du dossier.
 - **Ménage** : vue dérivée automatiquement, avec uniquement la semaine, le nom et le téléphone. Mise à jour en temps réel. Bouton « Partager » : lien en lecture seule, révocable, envoyable par SMS ou WhatsApp. Export PDF.
 - **Messages** : les 7 modèles fournis, emojis conservés, avec un bouton « Copier » en un clic. Chaque modèle peut être rempli avec une réservation. On peut modifier les modèles, en créer et insérer des variables `{prenom_locataire}`, `{date_arrivee}`, `{montant_acompte}`, etc.
 - **Comptabilité** : recettes rattachées à l'année d'encaissement (utile pour la déclaration micro-entreprise). Export Excel et lien comptable en lecture seule.
-- **Réglages** : pour chaque appartement, caution, couleur, adresse, n° Declaloc et barème de taxe de séjour (taux communal, plafond, taux départemental, âge d'exonération). On y trouve aussi le modèle de contrat et le mot de passe.
+- **Réglages** : pour chaque appartement, caution, couleur, adresse complète, n° Declaloc, capacité, heures d'arrivée et de départ, barème de taxe de séjour (taux communal, plafond, taux départemental, âge d'exonération) et modèle de contrat. On y règle aussi l'identité du propriétaire et sa signature (en-tête et pied des contrats) ainsi que le mot de passe.
 
 ## Règles de calcul
 

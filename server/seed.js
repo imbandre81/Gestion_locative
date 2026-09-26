@@ -10,6 +10,9 @@ const APPARTEMENTS = [
     taux_departemental: 10,
     age_exoneration: 18,
     couleur: '#2f7d4f',
+    capacite: 8,
+    heure_arrivee: '14h',
+    heure_depart: '10h',
   },
   {
     nom: 'Les Deux Alpes',
@@ -20,6 +23,9 @@ const APPARTEMENTS = [
     taux_departemental: 10,
     age_exoneration: 18,
     couleur: '#2b7bb9',
+    capacite: 8,
+    heure_arrivee: '14h',
+    heure_depart: '10h',
   },
 ];
 
@@ -190,51 +196,4 @@ Isabelle`,
   },
 ];
 
-const CONTRAT = `CONTRAT DE LOCATION SAISONNIÈRE
-Meublé de tourisme — {appartement}
-
-ENTRE LES SOUSSIGNÉS
-
-Le bailleur : Isabelle ANDRÉ
-ci-après « le propriétaire »,
-
-ET
-
-Le locataire : {nom_locataire}
-Téléphone : {telephone} — E-mail : {email}
-ci-après « le locataire ».
-
-1. OBJET
-Le propriétaire loue au locataire, qui l'accepte, le meublé de tourisme situé :
-{adresse}
-N° d'enregistrement : {declaloc}
-
-2. DURÉE
-La location est consentie pour la semaine n° {semaine}, du {date_arrivee} (arrivée à partir de 16h) au {date_depart} (départ avant 10h), soit {nb_nuits} nuits.
-Nombre d'occupants : {nb_personnes} personne(s) ({nb_adultes} adulte(s), {nb_enfants} enfant(s)).
-
-3. PRIX ET CONDITIONS DE PAIEMENT
-Le prix du séjour est fixé à {montant_sejour}, charges comprises. Ménage de fin de séjour : {menage}.
-- Un acompte de 30 %, soit {montant_acompte}, est versé à la signature du présent contrat.
-- Le solde, soit {montant_solde}, est à régler au plus tard un mois avant l'arrivée.
-Taxe de séjour : {taxe_sejour}, à régler en supplément.
-
-4. DÉPÔT DE GARANTIE
-Un chèque de caution de {montant_caution} sera envoyé un mois avant l'arrivée. Il sera restitué dans un délai maximal d'un mois après le départ, déduction faite, le cas échéant, des sommes justifiées dues au titre des dégradations constatées.
-
-5. ÉTAT DES LIEUX ET INVENTAIRE
-Un état des lieux et un inventaire sont établis à l'arrivée et au départ. Le locataire s'engage à signaler toute anomalie dans les 24 heures suivant son arrivée.
-
-6. OBLIGATIONS DU LOCATAIRE
-Le locataire s'engage à occuper les lieux paisiblement, à les rendre dans l'état où il les a trouvés, à ne pas dépasser le nombre d'occupants prévu et à respecter le règlement de la copropriété.
-
-7. ANNULATION
-En cas d'annulation par le locataire, l'acompte reste acquis au propriétaire.
-
-Fait en deux exemplaires, le {date_du_jour}.
-
-Le propriétaire                                   Le locataire
-(« lu et approuvé »)                              (« lu et approuvé »)
-`;
-
-module.exports = { APPARTEMENTS, MODELES, CONTRAT };
+module.exports = { APPARTEMENTS, MODELES };
