@@ -25,6 +25,20 @@ npm test                                             # tests des calculs et de l
 > 🔒 Les données personnelles (identité et adresse du propriétaire, signature, locataires) ne sont jamais dans le code source : elles se saisissent dans l'application et restent dans `data/`.
 Pour un accès depuis le téléphone, héberger derrière un reverse proxy HTTPS (Caddy, Nginx…) sur un petit serveur ou un NAS.
 
+## Installation sur Mac (usage local)
+
+1. **Installer Node.js** : télécharger la version **LTS** sur https://nodejs.org/fr/download (installeur macOS `.pkg`), puis l'installer.
+2. **Récupérer l'application** : télécharger le ZIP du dépôt sur GitHub (bouton vert « Code » → « Download ZIP »). Décompresser le dossier et le placer par exemple dans `Documents`.
+3. **Lancer** : double-cliquer sur **`Lancer Gestion locative.command`**.
+   - À la première ouverture, macOS peut bloquer le fichier (« développeur non identifié »). Faire alors **clic droit → Ouvrir → Ouvrir**, une seule fois.
+   - La première fois, l'installation des composants prend environ une minute. Le navigateur s'ouvre ensuite sur http://localhost:3000.
+   - Garder la fenêtre du Terminal ouverte pendant l'utilisation. La fermer arrête l'application.
+4. Se connecter avec le mot de passe provisoire `isabelle`, puis le changer dans **Réglages**.
+
+Les données (base, documents, signature) sont dans le sous-dossier `data/` de l'application : Time Machine le sauvegarde avec le reste. Pour mettre à jour l'application, remplacer les fichiers par la nouvelle version **en conservant le dossier `data/`**.
+
+> Les liens de partage (ménage, comptable) pointent vers `localhost` : ils ne fonctionnent que sur ce Mac tant que l'application n'est pas hébergée sur un serveur accessible depuis Internet.
+
 ## Fonctionnalités
 
 - **Tableau de bord** : par appartement et par année, semaines louées, taux d'occupation, encaissé et reste à encaisser, taxe de séjour ; alertes en cours ; arrivées et départs des 60 prochains jours ; comparatif des revenus d'une année sur l'autre.
